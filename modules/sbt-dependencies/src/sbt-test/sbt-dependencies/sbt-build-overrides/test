@@ -1,0 +1,6 @@
+# An `overrides = true` line in the `sbt-build` group must reach the meta-build's `dependencyOverrides` with a concrete
+# name and no cross-version, or the meta-build fails to load: `cats-effect` brings an older `cats-core` and the strict
+# version scheme turns the eviction into an error.
+> reload plugins
+> assertBuildOverride
+> reload return

@@ -184,13 +184,13 @@ class Settings {
     *
     * Modules the project declares itself without the flag (see `dependenciesForProject`) are removed, so an explicit
     * line is never silently defeated by an inherited override — the post-`update` mismatch warning reports when a
-    * transitive dependency outvotes it instead. Names are made concrete (`cats-core_2.13`) so BOM pins and `::` lines
-    * dedupe together.
+    * transitive dependency outvotes it instead. Names are made concrete (`cats-core_2.13`) with their cross-version
+    * disabled, so BOM pins and `::` lines dedupe together and the suffix is not applied twice.
     */
   val dependencyOverridesFromFile: Def.Initialize[Seq[ModuleID]] = Def.setting {
     val sbtV     = (pluginCrossBuild / sbtBinaryVersion).value
     val scalaV   = (update / scalaBinaryVersion).value
-    val concrete = CrossVersion(scalaVersion.value, scalaV)
+    val concrete = CrossVersion(scalaVersion.value, scalaV).andThen(_.withCrossVersion(CrossVersion.disabled))
 
     implicit val logger: Logger         = sLog.value
     implicit val fetcher: ModuleFetcher = bomFetcher.value
