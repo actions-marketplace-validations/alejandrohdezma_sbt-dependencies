@@ -17,6 +17,7 @@
 package com.alejandrohdezma.sbt.dependencies.model
 
 import sbt.librarymanagement.CrossVersion
+import sbt.librarymanagement.InclExclRule
 import sbt.librarymanagement.ModuleID
 import sbt.util.Logger
 
@@ -115,6 +116,41 @@ class DependencySuite extends munit.FunSuite {
     val module = dep.toModuleID("1.0", "2.13")
 
     assertEquals(module.configurations, None)
+  }
+
+  test("toModuleID maps every exclude shape to its sbt rule") {
+    val dep = Dependency(
+      "org.tribuo",
+      "tribuo-onnx",
+      Version.Numeric(List(4, 3, 2), None, Version.Numeric.Marker.NoMarker),
+      crossVersion = Dependency.Cross.Disabled,
+      exclusions = List(
+        Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false),
+        Exclusion("org.typelevel", Some("cats-core"), isCross = true),
+        Exclusion("com.google.guava", None, isCross = false)
+      )
+    )
+
+    val module = dep.toModuleID("1.0", "2.13")
+
+    val expected = Vector(
+      InclExclRule().withOrganization("com.google.protobuf").withName("protobuf-java"),
+      InclExclRule().withOrganization("org.typelevel").withName("cats-core").withCrossVersion(CrossVersion.binary),
+      InclExclRule().withOrganization("com.google.guava")
+    )
+
+    assertEquals(module.exclusions, expected)
+  }
+
+  test("toModuleID leaves exclusions empty when the dependency declares none") {
+    val dep = Dependency(
+      "com.google.guava",
+      "guava",
+      Version.Numeric(List(32, 1, 0), Some("-jre"), Version.Numeric.Marker.NoMarker),
+      crossVersion = Dependency.Cross.Disabled
+    )
+
+    assertEquals(dep.toModuleID("1.0", "2.13").exclusions, Vector.empty[InclExclRule])
   }
 
   test("toModuleID creates sbt plugin module") {

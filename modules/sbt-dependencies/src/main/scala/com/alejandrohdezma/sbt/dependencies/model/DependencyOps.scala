@@ -52,6 +52,24 @@ object DependencyOps {
 
   }
 
+  implicit class ExclusionOps(private val exclusion: Exclusion) extends AnyVal {
+
+    /** Maps this exclusion to the SBT rule applied to a `ModuleID`: an exact artifact name for `org:name`, the
+      * Scala-suffixed one for `org::name`, and every artifact of the organization for a bare `org`.
+      */
+    def toSbt: InclExclRule = exclusion.name match {
+      case None =>
+        InclExclRule().withOrganization(exclusion.organization)
+
+      case Some(name) if exclusion.isCross =>
+        InclExclRule().withOrganization(exclusion.organization).withName(name).withCrossVersion(CrossVersion.binary)
+
+      case Some(name) =>
+        InclExclRule().withOrganization(exclusion.organization).withName(name)
+    }
+
+  }
+
   implicit class CrossCompanionOps(private val self: Cross.type) extends AnyVal {
 
     /** Maps an SBT `CrossVersion` to the shape supported by the `cross-version` annotation. Shapes with no keyword
@@ -276,7 +294,9 @@ object DependencyOps {
             .withCrossVersion(dependency.crossVersion.toSbt)
       }
 
-      withConfig.withIsTransitive(!dependency.intransitive)
+      withConfig
+        .withIsTransitive(!dependency.intransitive)
+        .withExclusions(withConfig.exclusions ++ dependency.exclusions.map(_.toSbt))
     }
 
     /** Finds the latest version for this dependency.
