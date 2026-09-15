@@ -8,6 +8,7 @@ Manage SBT dependencies from a single HOCON file with version markers, auto-upda
 - Control updates with [version markers](#user-content-pin-a-dependency): pin, restrict to major, or restrict to minor.
 - Document pinning decisions with [dependency notes](#user-content-add-a-note-to-a-pinned-dependency).
 - [Mark dependencies as intransitive](#user-content-mark-a-dependency-as-intransitive) to exclude transitive dependencies.
+- [Exclude single coordinates](#user-content-exclude-transitive-coordinates) from a dependency's transitive graph with `exclude`, locally or from a BOM.
 - [Force versions across the whole graph](#user-content-force-versions-with-overrides) with `overrides = true`, on a BOM or on a single dependency.
 - Automatically [migrate renamed artifacts](#user-content-configure-artifact-migrations) using Scala Steward's migration list.
 - [Exclude known-bad versions](#user-content-configure-update-ignores) from updates using Scala Steward's ignore list.
@@ -26,7 +27,7 @@ Manage SBT dependencies from a single HOCON file with version markers, auto-upda
 Add the following line to your `project/project/plugins.sbt` file:
 
 ```sbt
-addSbtPlugin("com.alejandrohdezma" % "sbt-dependencies" % "0.40.1")
+addSbtPlugin("com.alejandrohdezma" % "sbt-dependencies" % "0.41.0")
 ```
 
 > Adding the plugin to `project/project/plugins.sbt` (meta-build) allows it to
@@ -66,6 +67,7 @@ The plugin automatically populates `libraryDependencies` for each project based 
   + [Pin a dependency to a specific version](#user-content-pin-a-dependency)
   + [Add a note to a pinned dependency](#user-content-add-a-note-to-a-pinned-dependency)
   + [Mark a dependency as intransitive](#user-content-mark-a-dependency-as-intransitive)
+  + [Exclude transitive coordinates](#user-content-exclude-transitive-coordinates)
   + [Force versions with `overrides`](#user-content-force-versions-with-overrides)
   + [Use shared version variables](#user-content-use-shared-version-variables)
   + [Use BOM-managed versions](#user-content-use-bom-managed-versions)
@@ -324,6 +326,65 @@ my-project = [
 ```
 
 The `intransitive` flag is preserved through `updateDependencies` — only the version is updated.
+
+---
+
+</details>
+
+<details><summary><b id="exclude-transitive-coordinates">Exclude transitive coordinates</b></summary><br/>
+
+Use the object format with `exclude` to keep specific coordinates out of a dependency's transitive graph — the declarative counterpart of sbt's `exclude`/`excludeAll`:
+
+```hocon
+my-project = [
+  {
+    dependency = "org.tribuo:tribuo-onnx:4.3.2"
+    note = "Tribuo 4.3.2 is built on protobuf-java 3"
+    exclude = ["com.google.protobuf:protobuf-java"]
+  }
+]
+```
+
+Each entry of the list is a coordinate in one of three shapes:
+
+| Coordinate | Meaning | Applied as |
+| --- | --- | --- |
+| `"org:name"` | the artifact with that exact name | `.exclude("org", "name")` |
+| `"org::name"` | the artifact with the Scala binary suffix (`name_2.13`) | `excludeAll` with `CrossVersion.binary` |
+| `"org"` | every artifact of that organization | `excludeAll(ExclusionRule("org"))` |
+
+Anything else — a coordinate carrying a version, for instance — is rejected when the file is read.
+
+The exclusions apply wherever the dependency is used: `libraryDependencies`, `dependencyOverrides` and the BOM-flattening helpers. They are preserved through `updateDependencies` — only the version is updated — and `formatDependenciesFile` keeps them, using the single-line object format when the entry fits in 120 characters and the multi-line one otherwise.
+
+To drop every transitive dependency at once use [`intransitive = true`](#user-content-mark-a-dependency-as-intransitive) instead.
+
+### Exclusions coming from a BOM
+
+A BOM can carry the exclusions itself. When a `<dependencyManagement>` entry declares an `<exclusions>` block, every dependency that takes its version from that BOM (`*`) inherits them, with no local annotation:
+
+```xml
+<dependency>
+  <groupId>org.tribuo</groupId>
+  <artifactId>tribuo-onnx</artifactId>
+  <version>4.3.2</version>
+  <exclusions>
+    <exclusion>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
+```
+
+```hocon
+my-project = [
+  "com.example:my-bom:1.0.0:bom"
+  "org.tribuo:tribuo-onnx:*"
+]
+```
+
+An `<artifactId>*</artifactId>` wildcard becomes an organization-wide exclusion, and the `<groupId>*</groupId><artifactId>*</artifactId>` wildcard — Maven's "no transitive dependencies at all" — makes the module intransitive. Exclusions the consuming line declares itself are merged with the BOM's, the line's own coming first.
 
 ---
 
@@ -1109,7 +1170,7 @@ Pre-update migrations need the classpath the project had before the update, so f
 
 A failing sbt step (e.g. a dependency bump that breaks the build load) doesn't stop the flow: whatever changed is still committed and the pull request is still created or updated, with a warning in its body explaining how to finish the update manually. The job itself still fails at the end so the failure stays visible.
 
-Reference it as `alejandrohdezma/sbt-dependencies@v0.40.1`:
+Reference it as `alejandrohdezma/sbt-dependencies@v0.41.0`:
 
 ```yaml
 name: Update Dependencies
@@ -1137,7 +1198,7 @@ jobs:
 
       - uses: sbt/setup-sbt@v1
 
-      - uses: alejandrohdezma/sbt-dependencies@v0.40.1
+      - uses: alejandrohdezma/sbt-dependencies@v0.41.0
         with:
           config-file: .github/.scala-steward.conf
 ```
