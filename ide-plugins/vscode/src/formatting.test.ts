@@ -661,6 +661,69 @@ describe("formatDocument", () => {
     ].join("\n") + "\n");
   });
 
+  it("preserves exclude in single-line object", () => {
+    const lines = [
+      'my-group = [',
+      '  { dependency = "org:art:1.0", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ];
+    const result = formatDocument(lines);
+    expect(result).toBe([
+      'my-group = [',
+      '  { dependency = "org:art:1.0", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ].join("\n") + "\n");
+  });
+
+  it("normalizes multi-line exclude object to single-line when short enough", () => {
+    const lines = [
+      'my-group = [',
+      '  {',
+      '    dependency = "org:art:1.0"',
+      '    exclude = ["com.google.protobuf:protobuf-java"]',
+      '  }',
+      ']',
+    ];
+    const result = formatDocument(lines);
+    expect(result).toBe([
+      'my-group = [',
+      '  { dependency = "org:art:1.0", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ].join("\n") + "\n");
+  });
+
+  it("emits exclude last, after every other annotation", () => {
+    const lines = [
+      'my-group = [',
+      '  { dependency = "org:art:1.0", exclude = ["com.google.protobuf", "org.slf4j::slf4j-api"], note = "reason" }',
+      ']',
+    ];
+    const result = formatDocument(lines);
+    expect(result).toBe([
+      'my-group = [',
+      '  { dependency = "org:art:1.0", note = "reason", exclude = ["com.google.protobuf", "org.slf4j::slf4j-api"] }',
+      ']',
+    ].join("\n") + "\n");
+  });
+
+  it("splits an object with exclude into multi-line when over the threshold", () => {
+    const lines = [
+      'my-group = [',
+      '  { dependency = "org.tribuo:tribuo-onnx:4.3.2", note = "tribuo pulls protobuf 3, which clashes with the v4 runtime", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ];
+    const result = formatDocument(lines);
+    expect(result).toBe([
+      'my-group = [',
+      '  {',
+      '    dependency = "org.tribuo:tribuo-onnx:4.3.2"',
+      '    note = "tribuo pulls protobuf 3, which clashes with the v4 runtime"',
+      '    exclude = ["com.google.protobuf:protobuf-java"]',
+      '  }',
+      ']',
+    ].join("\n") + "\n");
+  });
+
   it("sorts shorter org prefix before longer org with same prefix", () => {
     const lines = [
       'my-group = [',

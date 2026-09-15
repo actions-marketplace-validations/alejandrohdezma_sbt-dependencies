@@ -50,6 +50,7 @@ export function parseNoteDecorations(lines: string[]): NoteDecorationData[] {
       event.overrides,
       event.scalaFilter !== undefined,
       event.crossVersion !== undefined,
+      event.exclude !== undefined,
     ].filter(Boolean).length;
     if (annotations !== 1) continue;
 
