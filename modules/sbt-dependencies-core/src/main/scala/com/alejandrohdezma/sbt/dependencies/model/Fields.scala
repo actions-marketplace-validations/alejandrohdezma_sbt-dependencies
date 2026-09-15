@@ -41,8 +41,11 @@ object Fields {
     */
   val Overrides = "overrides"
 
+  /** The list of coordinates kept out of an object entry's transitive graph. */
+  val Exclude = "exclude"
+
   /** The keys an object entry can declare. */
-  val EntryFields: List[String] = List(Dependency, Note, Intransitive, Overrides, ScalaFilter, CrossVersion)
+  val EntryFields: List[String] = List(Dependency, Note, Intransitive, Overrides, ScalaFilter, CrossVersion, Exclude)
 
   /** The single-Scala-version setting of an advanced group. */
   val ScalaVersion = "scala-version"

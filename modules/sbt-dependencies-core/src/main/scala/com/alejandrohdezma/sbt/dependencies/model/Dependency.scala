@@ -41,7 +41,8 @@ final case class Dependency(
     intransitive: Boolean = false,
     scalaFilter: Option[String] = None,
     crossVersion: Dependency.Cross = Dependency.Cross.Disabled,
-    overrides: Boolean = false
+    overrides: Boolean = false,
+    exclusions: List[Exclusion] = Nil
 ) {
 
   /** Whether this dep is cross-compiled. Derived from `crossVersion`: anything other than `Disabled` is cross. */
@@ -62,10 +63,11 @@ final case class Dependency(
       intransitive: Boolean,
       scalaFilter: Option[String],
       crossVersion: Dependency.Cross,
-      overrides: Boolean
+      overrides: Boolean,
+      exclusions: List[Exclusion]
   ): Dependency = copy(
     note = note, intransitive = intransitive, scalaFilter = scalaFilter, crossVersion = crossVersion,
-    overrides = overrides
+    overrides = overrides, exclusions = exclusions
   )
 
   /** Checks if the dependency is the same artifact as another dependency. Cross vs Java is part of the artifact

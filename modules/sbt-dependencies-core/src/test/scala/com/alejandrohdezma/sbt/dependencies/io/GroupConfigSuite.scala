@@ -17,6 +17,7 @@
 package com.alejandrohdezma.sbt.dependencies.io
 
 import com.alejandrohdezma.sbt.dependencies.model.Dependency.Version.Numeric
+import com.alejandrohdezma.sbt.dependencies.model.Exclusion
 import com.alejandrohdezma.sbt.dependencies.model.Group
 import com.typesafe.config.ConfigFactory
 
@@ -248,7 +249,11 @@ class GroupConfigSuite extends munit.FunSuite {
     val result = parseGroup("""my-group = [{ dependency = "org::name:1.0" }]""", "my-group")
 
     assert(result.isLeft)
-    assert(result.left.exists(_.contains("'note', 'intransitive', 'overrides', 'scala-filter', or 'cross-version'")))
+    assert(
+      result.left.exists(
+        _.contains("'note', 'intransitive', 'overrides', 'scala-filter', 'cross-version' or 'exclude'")
+      )
+    )
   }
 
   // --- parse() tests: Object format with intransitive ---
@@ -621,6 +626,103 @@ class GroupConfigSuite extends munit.FunSuite {
           |]""".stripMargin
 
     assertEquals(result, expected)
+  }
+
+  // --- parse() tests: Object format with exclude ---
+
+  test("parse object entry with exclude reads every supported coordinate shape") {
+    val result = parseGroup(
+      """|my-group = [
+         |  { dependency = "org:name:1.0", exclude = ["org.a", "org.b:lib-b", "org.c::lib-c"] }
+         |]""".stripMargin,
+      "my-group"
+    )
+
+    val exclusions = List(
+      Exclusion("org.a", None, isCross = false),
+      Exclusion("org.b", Some("lib-b"), isCross = false),
+      Exclusion("org.c", Some("lib-c"), isCross = true)
+    )
+
+    assertEquals(result, Right(GroupConfig.Simple(List(AnnotatedDependency("org:name:1.0", exclusions = exclusions)))))
+  }
+
+  test("parse returns error for an invalid exclude coordinate") {
+    val result = parseGroup("""my-group = [{ dependency = "org:name:1.0", exclude = ["org:name:1.0"] }]""", "my-group")
+
+    assert(result.isLeft)
+    assert(result.left.exists(_.contains("is not a valid exclusion")))
+  }
+
+  test("parse accepts an object entry whose only annotation is exclude") {
+    val result = parseGroup("""my-group = [{ dependency = "org:name:1.0", exclude = ["org.a"] }]""", "my-group")
+
+    assert(result.isRight)
+  }
+
+  test("format Simple with exclude only uses single-line object") {
+    val exclusions = List(Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false))
+    val config     = GroupConfig.Simple(List(AnnotatedDependency("org.tribuo:tribuo-onnx:4.3.2", exclusions = exclusions)))
+    val result     = config.format(Group("my-project"))
+
+    val expected =
+      """|my-project = [
+         |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }
+         |]""".stripMargin
+
+    assertEquals(result, expected)
+  }
+
+  test("format Simple emits exclude after every other annotation") {
+    val config = GroupConfig.Simple(
+      List(
+        AnnotatedDependency(
+          "org::name:1.0.0",
+          Some("reason"),
+          intransitive = true,
+          exclusions = List(Exclusion("org.a", None, isCross = false))
+        )
+      )
+    )
+    val result = config.format(Group("my-project"))
+
+    val expected =
+      """|my-project = [
+         |  { dependency = "org::name:1.0.0", note = "reason", intransitive = true, exclude = ["org.a"] }
+         |]""".stripMargin
+
+    assertEquals(result, expected)
+  }
+
+  test("format Simple with a long exclude list uses multi-line object") {
+    val exclusions = List(
+      Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false),
+      Exclusion("com.google.protobuf", Some("protobuf-java-util"), isCross = false),
+      Exclusion("com.fasterxml.jackson.core", Some("jackson-databind"), isCross = false)
+    )
+    val config = GroupConfig.Simple(List(AnnotatedDependency("org.tribuo:tribuo-onnx:4.3.2", exclusions = exclusions)))
+    val result = config.format(Group("my-project"))
+
+    val expected =
+      """|my-project = [
+         |  {
+         |    dependency = "org.tribuo:tribuo-onnx:4.3.2"
+         |    exclude = ["com.google.protobuf:protobuf-java", "com.google.protobuf:protobuf-java-util", "com.fasterxml.jackson.core:jackson-databind"]
+         |  }
+         |]""".stripMargin
+
+    assertEquals(result, expected)
+  }
+
+  test("parse then format round-trips an exclude entry") {
+    val text =
+      """|my-project = [
+         |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }
+         |]""".stripMargin
+
+    val result = parseGroup(text, "my-project").map(_.format(Group("my-project")))
+
+    assertEquals(result, Right(text))
   }
 
   // --- parse() tests: Object format with scala-filter ---
