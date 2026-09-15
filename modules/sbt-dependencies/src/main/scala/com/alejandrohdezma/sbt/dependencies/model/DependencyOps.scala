@@ -58,14 +58,26 @@ object DependencyOps {
       * Scala-suffixed one for `org::name`, and every artifact of the organization for a bare `org`.
       */
     def toSbt: InclExclRule = exclusion.name match {
-      case None =>
-        InclExclRule().withOrganization(exclusion.organization)
-
+      case None                            => InclExclRule().withOrganization(exclusion.organization)
       case Some(name) if exclusion.isCross =>
         InclExclRule().withOrganization(exclusion.organization).withName(name).withCrossVersion(CrossVersion.binary)
+      case Some(name) => InclExclRule().withOrganization(exclusion.organization).withName(name)
+    }
 
-      case Some(name) =>
-        InclExclRule().withOrganization(exclusion.organization).withName(name)
+  }
+
+  implicit class ExclusionCompanionOps(private val self: Exclusion.type) extends AnyVal {
+
+    /** Maps an SBT rule back to the `exclude` annotation shape. The `*` artifact name — what Maven's
+      * `<artifactId>*</artifactId>` and sbt's organization-only rules produce — becomes a bare `org` exclusion.
+      */
+    def fromSbt(rule: InclExclRule): Exclusion = {
+      val isCross = rule.crossVersion match {
+        case _: Disabled => false
+        case _           => true
+      }
+
+      Exclusion(rule.organization, Some(rule.name).filterNot(_ === "*"), isCross)
     }
 
   }
@@ -132,8 +144,11 @@ object DependencyOps {
             case None      => dependency
             case Some(pin) =>
               Version.Numeric.unapply(pin.revision) match {
-                case Some(numeric) => dependency.withVersion(Version.Bom(Some(numeric)))
-                case None          =>
+                case Some(numeric) =>
+                  dependency
+                    .withVersion(Version.Bom(Some(numeric)))
+                    .withBomExclusions(pin)
+                case None =>
                   Utils.fail(
                     s"BOM version '${pin.revision}' for ${dependency.organization}:$artifact is not a valid version"
                   )
@@ -268,6 +283,16 @@ object DependencyOps {
         case Version.Bom(Some(_)) => true
         case _                    => false
       }
+
+    /** This dependency with the exclusions `pin` declares merged into its own, and marked intransitive when the pin is.
+      * Lets a BOM entry's `<exclusions>` protect every consumer that takes its version from the BOM (`*`), without any
+      * local annotation; a consumer's own `exclude` entries are kept alongside.
+      */
+    def withBomExclusions(pin: ModuleID): Dependency =
+      dependency.copy(
+        intransitive = dependency.intransitive || !pin.isTransitive,
+        exclusions = (dependency.exclusions ++ pin.exclusions.toList.map(Exclusion.fromSbt)).distinct
+      )
 
     /** Converts this dependency to an SBT ModuleID for use in libraryDependencies.
       *

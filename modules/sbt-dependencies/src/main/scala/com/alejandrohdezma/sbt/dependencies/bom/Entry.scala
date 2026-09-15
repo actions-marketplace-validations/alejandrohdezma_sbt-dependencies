@@ -16,13 +16,28 @@
 
 package com.alejandrohdezma.sbt.dependencies.bom
 
+import sbt._
+
+import com.alejandrohdezma.sbt.dependencies.model.DependencyOps._
+import com.alejandrohdezma.sbt.dependencies.model.Exclusion
+
 /** One `<dependencyManagement>` entry. `isImport` marks a `<scope>import</scope>` BOM, recursed into rather than
-  * emitted.
+  * emitted. `exclusions` and `intransitive` carry the entry's `<exclusions>` block, so a BOM can keep a coordinate out
+  * of the graph of every consumer that takes its version from the BOM.
   */
-private[bom] case class Entry(coords: Coords, isImport: Boolean) {
+private[bom] case class Entry(
+    coords: Coords,
+    isImport: Boolean,
+    exclusions: List[Exclusion] = Nil,
+    intransitive: Boolean = false
+) {
 
   /** This entry with its coordinate's placeholders expanded against `properties`; `None` if any can't be resolved. */
   def resolve(properties: Map[String, String]): Option[Entry] =
     coords.resolve(properties).map(resolved => copy(coords = resolved))
+
+  /** This entry as an sbt `ModuleID`, carrying its exclusions. */
+  def toModuleID: ModuleID =
+    coords.toModuleID.withExclusions(exclusions.toVector.map(_.toSbt)).withIsTransitive(!intransitive)
 
 }
