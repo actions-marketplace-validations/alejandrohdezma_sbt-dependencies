@@ -96,7 +96,8 @@ object DependenciesDocument {
         scalaFilter: Option[Field],
         crossVersion: Option[Field],
         span: Span,
-        overrides: Boolean = false
+        overrides: Boolean = false,
+        exclude: Boolean = false
     ) extends Entry
 
   }
@@ -120,6 +121,8 @@ object DependenciesDocument {
   private val scalaFilterField = (Fields.ScalaFilter + """\s*=\s*"([^"]*)"""").r
 
   private val crossVersionField = (Fields.CrossVersion + """\s*=\s*"([^"]*)"""").r
+
+  private val excludeField = (Fields.Exclude + """\s*=\s*\[""").r
 
   private val singleLineObject = """\{(?:[^}"{]*(?:"[^"]*")?)*\}""".r
 
@@ -171,6 +174,8 @@ object DependenciesDocument {
     private var objectScalaFilter = Option.empty[Field]
 
     private var objectCrossVersion = Option.empty[Field]
+
+    private var objectExclude = false
 
     private var preObjectState: State = State.SimpleArray
 
@@ -331,6 +336,7 @@ object DependenciesDocument {
       objectOverrides = false
       objectScalaFilter = None
       objectCrossVersion = None
+      objectExclude = false
     }
 
     private def trackObjectFields(line: String, offset: Int): Unit = {
@@ -343,6 +349,7 @@ object DependenciesDocument {
       objectOverrides = objectOverrides || overridesField.findFirstIn(line).isDefined
       objectScalaFilter = objectScalaFilter.orElse(field(scalaFilterField))
       objectCrossVersion = objectCrossVersion.orElse(field(crossVersionField))
+      objectExclude = objectExclude || excludeField.findFirstIn(line).isDefined
     }
 
     private def flushObject(end: Int): Unit =
@@ -353,7 +360,8 @@ object DependenciesDocument {
         objectScalaFilter,
         objectCrossVersion,
         Span(objectStart, end),
-        objectOverrides
+        objectOverrides,
+        objectExclude
       )
 
     /** Emits single-line object entries and plain string entries found on a line. Objects are detected first (skipping

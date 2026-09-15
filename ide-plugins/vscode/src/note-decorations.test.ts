@@ -188,6 +188,24 @@ describe("parseNoteDecorations", () => {
     expect(parseNoteDecorations(lines)).toHaveLength(0);
   });
 
+  it("leaves an object with both note and exclude uncollapsed", () => {
+    const lines = [
+      'my-group = [',
+      '  { dependency = "org.tribuo:tribuo-onnx:4.3.2", note = "pulls protobuf 3", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ];
+    expect(parseNoteDecorations(lines)).toHaveLength(0);
+  });
+
+  it("leaves an exclude-only entry uncollapsed", () => {
+    const lines = [
+      'my-group = [',
+      '  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }',
+      ']',
+    ];
+    expect(parseNoteDecorations(lines)).toHaveLength(0);
+  });
+
   it("returns decoration for overrides-only entry", () => {
     const lines = [
       'my-group = [',

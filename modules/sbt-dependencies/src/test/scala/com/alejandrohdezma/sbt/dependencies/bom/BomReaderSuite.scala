@@ -21,10 +21,12 @@ import java.nio.file.Files
 import scala.annotation.nowarn
 
 import sbt._
+import sbt.librarymanagement.InclExclRule
 import sbt.util.Level
 import sbt.util.Logger
 
 import com.alejandrohdezma.sbt.dependencies.TestLogger
+import com.alejandrohdezma.sbt.dependencies.model.Eq._
 
 @nowarn("msg=detected an interpolated expression")
 class BomReaderSuite extends munit.FunSuite {
@@ -155,6 +157,36 @@ class BomReaderSuite extends munit.FunSuite {
     )
 
     assertEquals(flattened.toList, expected)
+  }
+
+  test("BomReader.read carries an entry's exclusions onto the flattened pin") {
+    implicit val fetcher: ModuleFetcher = module =>
+      pomFile(module) {
+        """<dependencyManagement><dependencies>
+          |  <dependency><groupId>org.tribuo</groupId><artifactId>tribuo-onnx</artifactId><version>4.3.2</version>
+          |    <exclusions>
+          |      <exclusion><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></exclusion>
+          |    </exclusions>
+          |  </dependency>
+          |  <dependency><groupId>org.example</groupId><artifactId>opaque</artifactId><version>1.0.0</version>
+          |    <exclusions>
+          |      <exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion>
+          |    </exclusions>
+          |  </dependency>
+          |</dependencies></dependencyManagement>""".stripMargin
+      }
+
+    val flattened = BomReader.read(ModuleID("com.example.exclusions", "root-bom", "1.0.0"), "2.13")
+
+    val expectedRule = InclExclRule().withOrganization("com.google.protobuf").withName("protobuf-java")
+
+    val tribuo = flattened.find(_.name === "tribuo-onnx").getOrElse(fail("tribuo-onnx not found"))
+    val opaque = flattened.find(_.name === "opaque").getOrElse(fail("opaque not found"))
+
+    assertEquals(tribuo.exclusions, Vector(expectedRule))
+    assert(tribuo.isTransitive)
+    assertEquals(opaque.exclusions, Vector.empty[InclExclRule])
+    assert(!opaque.isTransitive)
   }
 
   def pomFile(module: ModuleID)(body: String): File = {

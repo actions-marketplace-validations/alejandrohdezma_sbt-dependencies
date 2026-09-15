@@ -370,7 +370,16 @@ describe("parseDiagnostics", () => {
       ];
       const result = parseDiagnostics(lines);
       expect(result).toHaveLength(1);
-      expect(result[0].message).toBe("Object entry must have a 'note', 'intransitive', 'overrides', 'scala-filter', or 'cross-version' field");
+      expect(result[0].message).toBe("Object entry must have a 'note', 'intransitive', 'overrides', 'scala-filter', 'cross-version' or 'exclude' field");
+    });
+
+    it("returns no diagnostics for single-line object whose only annotation is exclude", () => {
+      const lines = [
+        'my-group = [',
+        '  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }',
+        ']',
+      ];
+      expect(parseDiagnostics(lines)).toEqual([]);
     });
 
     it("returns no diagnostics for single-line object with intransitive = true", () => {
@@ -482,7 +491,19 @@ describe("parseDiagnostics", () => {
       ];
       const result = parseDiagnostics(lines);
       expect(result).toHaveLength(1);
-      expect(result[0].message).toBe("Object entry must have a 'note', 'intransitive', 'overrides', 'scala-filter', or 'cross-version' field");
+      expect(result[0].message).toBe("Object entry must have a 'note', 'intransitive', 'overrides', 'scala-filter', 'cross-version' or 'exclude' field");
+    });
+
+    it("returns no diagnostics for multi-line object whose only annotation is exclude", () => {
+      const lines = [
+        'my-group = [',
+        '  {',
+        '    dependency = "org.tribuo:tribuo-onnx:4.3.2"',
+        '    exclude = ["com.google.protobuf:protobuf-java"]',
+        '  }',
+        ']',
+      ];
+      expect(parseDiagnostics(lines)).toEqual([]);
     });
 
     it("returns no diagnostics for multi-line object with intransitive = true", () => {

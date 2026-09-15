@@ -26,6 +26,7 @@ import sbt._
 import sbt.util.Logger
 
 import com.alejandrohdezma.sbt.dependencies.TestLogger
+import com.alejandrohdezma.sbt.dependencies.model.Exclusion
 
 @nowarn("msg=detected an interpolated expression")
 class PomSuite extends munit.FunSuite {
@@ -188,6 +189,61 @@ class PomSuite extends munit.FunSuite {
     )
 
     assertEquals(pom, expected)
+  }
+
+  withPomFile {
+    """<?xml version="1.0" encoding="UTF-8"?>
+      |<project>
+      |  <groupId>com.example</groupId>
+      |  <artifactId>bom</artifactId>
+      |  <version>1.0.0</version>
+      |  <dependencyManagement>
+      |    <dependencies>
+      |      <dependency>
+      |        <groupId>org.tribuo</groupId>
+      |        <artifactId>tribuo-onnx</artifactId>
+      |        <version>4.3.2</version>
+      |        <exclusions>
+      |          <exclusion>
+      |            <groupId>com.google.protobuf</groupId>
+      |            <artifactId>protobuf-java</artifactId>
+      |          </exclusion>
+      |          <exclusion>
+      |            <groupId>com.google.guava</groupId>
+      |            <artifactId>*</artifactId>
+      |          </exclusion>
+      |        </exclusions>
+      |      </dependency>
+      |      <dependency>
+      |        <groupId>org.example</groupId>
+      |        <artifactId>opaque</artifactId>
+      |        <version>1.0.0</version>
+      |        <exclusions>
+      |          <exclusion>
+      |            <groupId>*</groupId>
+      |            <artifactId>*</artifactId>
+      |          </exclusion>
+      |        </exclusions>
+      |      </dependency>
+      |    </dependencies>
+      |  </dependencyManagement>
+      |</project>""".stripMargin
+  }.test("Pom.parse reads an entry's exclusions, mapping the *:* wildcard to intransitive") { file =>
+    val pom = Pom.parse(Coords("com.example", "bom", "1.0.0"), file)
+
+    val expected = List(
+      Entry(
+        Coords("org.tribuo", "tribuo-onnx", "4.3.2"),
+        isImport = false,
+        exclusions = List(
+          Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false),
+          Exclusion("com.google.guava", None, isCross = false)
+        )
+      ),
+      Entry(Coords("org.example", "opaque", "1.0.0"), isImport = false, intransitive = true)
+    )
+
+    assertEquals(pom.entries.toList, expected)
   }
 
   test("Pom.fetch loads each coordinate only once") {

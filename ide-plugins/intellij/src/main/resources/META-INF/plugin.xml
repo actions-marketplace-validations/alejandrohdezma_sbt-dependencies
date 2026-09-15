@@ -26,10 +26,10 @@
   ]]></description>
   <change-notes><![CDATA[
     <ul>
-      <li>The new <code>overrides = true</code> annotation is highlighted and validated like the other object-entry
-      fields, and a single-line entry carrying only that annotation folds into <code>"..." // overrides</code>.</li>
-      <li>Entries with several annotations (a note plus <code>intransitive</code>, <code>scala-filter</code> or
-      <code>overrides</code>) now stay expanded instead of folding to the note alone, so no annotation is hidden.</li>
+      <li>The new <code>exclude = ["org:name", ...]</code> annotation is recognised: every coordinate in the list is
+      highlighted as a plain string instead of being split like a dependency line.</li>
+      <li>Entries carrying an <code>exclude</code> list count it as an annotation, so they stay expanded instead of
+      folding to their note alone.</li>
     </ul>
   ]]></change-notes>
 

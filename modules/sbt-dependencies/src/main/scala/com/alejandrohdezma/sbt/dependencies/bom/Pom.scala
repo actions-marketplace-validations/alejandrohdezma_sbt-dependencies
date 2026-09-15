@@ -24,6 +24,7 @@ import scala.xml.XML
 import sbt._
 
 import com.alejandrohdezma.sbt.dependencies.model.Eq._
+import com.alejandrohdezma.sbt.dependencies.model.Exclusion
 
 /** The slice of a resolved pom BomReader needs: coordinate, optional `<parent>`, `<properties>`, and its
   * `<dependencyManagement>` entries.
@@ -110,7 +111,20 @@ private[bom] object Pom {
     val properties = (xml \ "properties").flatMap(_.child).collect { case e: Elem => e.label -> e.text.trim }.toMap
 
     val entries = (xml \ "dependencyManagement" \ "dependencies" \ "dependency").map { d =>
-      Entry(Coords(text(d \ "groupId"), text(d \ "artifactId"), text(d \ "version")), text(d \ "scope") === "import")
+      val excluded = (d \ "exclusions" \ "exclusion").map(e => (text(e \ "groupId"), text(e \ "artifactId"))).toList
+
+      val (wildcards, exclusions) = excluded.partition { case (group, artifact) =>
+        group === "*" && artifact === "*"
+      }
+
+      Entry(
+        Coords(text(d \ "groupId"), text(d \ "artifactId"), text(d \ "version")),
+        text(d \ "scope") === "import",
+        exclusions.map { case (group, artifact) =>
+          Exclusion(group, Some(artifact).filterNot(_ === "*"), isCross = false)
+        },
+        wildcards.nonEmpty
+      )
     }
 
     log.debug(

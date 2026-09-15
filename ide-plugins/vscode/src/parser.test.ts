@@ -209,6 +209,25 @@ describe("walkDocument", () => {
       expect(objs[0].crossVersion).toBe("full");
     });
 
+    it("detects exclude field", () => {
+      const objs = eventsOfType(
+        `group = [\n  { dependency = "org:art:1.0", exclude = ["com.google.protobuf:protobuf-java", "org.slf4j"] }\n]`,
+        "single-line-object"
+      );
+      expect(objs).toHaveLength(1);
+      expect(objs[0].exclude).toEqual(["com.google.protobuf:protobuf-java", "org.slf4j"]);
+    });
+
+    it("aggregates exclude field in multi-line end event", () => {
+      const ends = eventsOfType(
+        `group = [\n  {\n    dependency = "org:art:1.0"\n    exclude = ["com.google.protobuf:protobuf-java"]\n  }\n]`,
+        "multi-line-object-end"
+      );
+      expect(ends).toHaveLength(1);
+      expect(ends[0].hasExclude).toBe(true);
+      expect(ends[0].excludeValue).toEqual(["com.google.protobuf:protobuf-java"]);
+    });
+
     it("calculates dependencyStartCol correctly", () => {
       const objs = eventsOfType(
         `group = [\n  { dependency = "org:art:1.0", note = "reason" }\n]`,
