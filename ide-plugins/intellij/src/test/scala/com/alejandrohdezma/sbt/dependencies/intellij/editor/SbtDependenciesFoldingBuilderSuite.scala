@@ -100,6 +100,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
         |  { dependency = "org.apache.kafka:kafka-clients:3.9.2", note = "Matches the broker", overrides = true }
         |  { dependency = "org.scala-lang:scala-reflect:2.13.16", note = "Only on 2.13", scala-filter = "2.13" }
         |  { dependency = "org.scalameta::munit:1.3.5", note = "Core types only", intransitive = true }
+        |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", note = "Built on protobuf 3", exclude = ["com.google.protobuf:protobuf-java"] }
         |]
         |""".stripMargin
 

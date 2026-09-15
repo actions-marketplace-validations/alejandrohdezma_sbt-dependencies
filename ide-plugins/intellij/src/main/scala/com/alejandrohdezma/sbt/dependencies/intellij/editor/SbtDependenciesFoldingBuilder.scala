@@ -89,7 +89,7 @@ object SbtDependenciesFoldingBuilder {
 
   private def annotations(entry: Entry.DependencyObject): Int =
     List(entry.note.isDefined, entry.intransitive, entry.overrides, entry.scalaFilter.isDefined,
-      entry.crossVersion.isDefined).count(identity)
+      entry.crossVersion.isDefined, entry.exclude).count(identity)
 
   private def singleLine(text: String, span: Span): Boolean =
     !text.substring(span.start, span.end).contains("\n")
