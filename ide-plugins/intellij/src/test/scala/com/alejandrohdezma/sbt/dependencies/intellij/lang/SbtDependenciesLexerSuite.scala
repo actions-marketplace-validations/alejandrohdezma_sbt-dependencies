@@ -88,10 +88,38 @@ class SbtDependenciesLexerSuite extends FunSuite {
     assertEquals(result.filter(_._1 == "OBJECT_KEY").map(_._2), List("dependency", "note"))
   }
 
+  test("every exclude coordinate lexes as a plain string, not a dependency") {
+    val result = lex("""core = [{ dependency = "a:b:1.0.0", exclude = ["org.baz", "org.baz:qux", "org.baz::qux"] }]""")
+
+    assertEquals(result.filter(_._1 == "DEP_STRING"), List("DEP_STRING" -> "\"a:b:1.0.0\""))
+    assertEquals(
+      result.filter(_._1 == "STRING").map(_._2),
+      List("\"org.baz\"", "\"org.baz:qux\"", "\"org.baz::qux\"")
+    )
+    assertEquals(result.filter(_._1 == "OBJECT_KEY").map(_._2), List("dependency", "exclude"))
+  }
+
+  test("a dependency following an exclude list still lexes as a dependency") {
+    val result = lex("""core = [{ dependency = "a:b:1.0.0", exclude = ["org.baz"] }, "c::d:2.0.0"]""")
+
+    assertEquals(
+      result.filter(_._1 == "DEP_STRING").map(_._2),
+      List("\"a:b:1.0.0\"", "\"c::d:2.0.0\"")
+    )
+    assertEquals(result.filter(_._1 == "STRING").map(_._2), List("\"org.baz\""))
+  }
+
   test("intransitive flag lexes as keyword") {
     val result = lex("""core = [{ dependency = "a:b:1.0.0", intransitive = true }]""").filter(_._1 == "KEYWORD")
 
     assertEquals(result, List("KEYWORD" -> "true"))
+  }
+
+  test("overrides flag lexes as object key and keyword") {
+    val result = lex("""core = [{ dependency = "a:b:1.0.0:bom", overrides = true }]""")
+
+    assertEquals(result.filter(_._1 == "OBJECT_KEY").map(_._2), List("dependency", "overrides"))
+    assertEquals(result.filter(_._1 == "KEYWORD"), List("KEYWORD" -> "true"))
   }
 
   test("line and block comments") {

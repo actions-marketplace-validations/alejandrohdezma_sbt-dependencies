@@ -17,6 +17,7 @@
 package com.alejandrohdezma.sbt.dependencies.model
 
 import scala.Console._
+import scala.collection.mutable.ListBuffer
 
 import sbt.Defaults.sbtPluginExtra
 import sbt.librarymanagement.CrossVersion
@@ -28,6 +29,7 @@ import sbt.util.Logger
 
 import com.alejandrohdezma.sbt.dependencies.finders.Finders
 import com.alejandrohdezma.sbt.dependencies.finders.Utils
+import com.alejandrohdezma.sbt.dependencies.finders.VersionFinder
 import com.alejandrohdezma.sbt.dependencies.model.Dependency.Cross
 import com.alejandrohdezma.sbt.dependencies.model.Dependency.Version
 import com.alejandrohdezma.sbt.dependencies.model.Dependency.Version.Numeric
@@ -46,6 +48,36 @@ object DependencyOps {
       case Cross.Full     => CrossVersion.full
       case Cross.Patch    => CrossVersion.patch
       case Cross.Disabled => CrossVersion.disabled
+    }
+
+  }
+
+  implicit class ExclusionOps(private val exclusion: Exclusion) extends AnyVal {
+
+    /** Maps this exclusion to the SBT rule applied to a `ModuleID`: an exact artifact name for `org:name`, the
+      * Scala-suffixed one for `org::name`, and every artifact of the organization for a bare `org`.
+      */
+    def toSbt: InclExclRule = exclusion.name match {
+      case None                            => InclExclRule().withOrganization(exclusion.organization)
+      case Some(name) if exclusion.isCross =>
+        InclExclRule().withOrganization(exclusion.organization).withName(name).withCrossVersion(CrossVersion.binary)
+      case Some(name) => InclExclRule().withOrganization(exclusion.organization).withName(name)
+    }
+
+  }
+
+  implicit class ExclusionCompanionOps(private val self: Exclusion.type) extends AnyVal {
+
+    /** Maps an SBT rule back to the `exclude` annotation shape. The `*` artifact name — what Maven's
+      * `<artifactId>*</artifactId>` and sbt's organization-only rules produce — becomes a bare `org` exclusion.
+      */
+    def fromSbt(rule: InclExclRule): Exclusion = {
+      val isCross = rule.crossVersion match {
+        case _: Disabled => false
+        case _           => true
+      }
+
+      Exclusion(rule.organization, Some(rule.name).filterNot(_ === "*"), isCross)
     }
 
   }
@@ -112,8 +144,11 @@ object DependencyOps {
             case None      => dependency
             case Some(pin) =>
               Version.Numeric.unapply(pin.revision) match {
-                case Some(numeric) => dependency.withVersion(Version.Bom(Some(numeric)))
-                case None          =>
+                case Some(numeric) =>
+                  dependency
+                    .withVersion(Version.Bom(Some(numeric)))
+                    .withBomExclusions(pin)
+                case None =>
                   Utils.fail(
                     s"BOM version '${pin.revision}' for ${dependency.organization}:$artifact is not a valid version"
                   )
@@ -249,6 +284,16 @@ object DependencyOps {
         case _                    => false
       }
 
+    /** This dependency with the exclusions `pin` declares merged into its own, and marked intransitive when the pin is.
+      * Lets a BOM entry's `<exclusions>` protect every consumer that takes its version from the BOM (`*`), without any
+      * local annotation; a consumer's own `exclude` entries are kept alongside.
+      */
+    def withBomExclusions(pin: ModuleID): Dependency =
+      dependency.copy(
+        intransitive = dependency.intransitive || !pin.isTransitive,
+        exclusions = (dependency.exclusions ++ pin.exclusions.toList.map(Exclusion.fromSbt)).distinct
+      )
+
     /** Converts this dependency to an SBT ModuleID for use in libraryDependencies.
       *
       * The `compiler-plugin` configuration is mapped to `plugin->default(compile)` (what `addCompilerPlugin` produces).
@@ -274,7 +319,9 @@ object DependencyOps {
             .withCrossVersion(dependency.crossVersion.toSbt)
       }
 
-      withConfig.withIsTransitive(!dependency.intransitive)
+      withConfig
+        .withIsTransitive(!dependency.intransitive)
+        .withExclusions(withConfig.exclusions ++ dependency.exclusions.map(_.toSbt))
     }
 
     /** Finds the latest version for this dependency.
@@ -336,17 +383,23 @@ object DependencyOps {
         isCross: Boolean,
         configuration: String = "compile"
     )(implicit finders: Finders, logger: Logger): Dependency = {
+      val queried = ListBuffer.empty[String]
+
+      def latestStableVersion(configuration: String, crossVersion: CrossVersion): Option[Numeric] = {
+        queried += VersionFinder.mavenArtifactName(name, finders.scalaVersion.value)(configuration, crossVersion).value
+
+        Utils.findLatestVersion(organization, name, configuration, crossVersion)(_.isStableVersion)
+      }
+
       val (resolvedCrossVersion, version) = configuration match {
         case "sbt-plugin" =>
           // sbt-plugin queries don't actually use crossVersion (the shape is fixed); keep `Disabled` since plugins are
           // not cross-compiled deps in the dependencies.conf sense.
-          Cross.Disabled ->
-            Utils.findLatestVersion(organization, name, "sbt-plugin", CrossVersion.disabled)(_.isStableVersion)
+          Cross.Disabled -> latestStableVersion("sbt-plugin", CrossVersion.disabled)
 
         case "compiler-plugin" if isCross =>
-          val full   = Utils.findLatestVersion(organization, name, configuration, CrossVersion.full)(_.isStableVersion)
-          val binary =
-            Utils.findLatestVersion(organization, name, configuration, CrossVersion.binary)(_.isStableVersion)
+          val full   = latestStableVersion(configuration, CrossVersion.full)
+          val binary = latestStableVersion(configuration, CrossVersion.binary)
 
           (full, binary) match {
             case (Some(f), Some(b)) if Ordering[Numeric].gteq(f, b) => Cross.Full   -> full
@@ -357,17 +410,20 @@ object DependencyOps {
 
         case _ =>
           val regular: Cross = if (isCross) Cross.Binary else Cross.Disabled
-          Utils.findLatestVersion(organization, name, configuration, regular.toSbt)(_.isStableVersion) match {
-            case found @ Some(_) => regular -> found
-            case None            =>
-              Cross.Disabled ->
-                Utils.findLatestVersion(organization, name, "sbt-plugin", CrossVersion.disabled)(_.isStableVersion)
+          latestStableVersion(configuration, regular.toSbt) match {
+            case found @ Some(_) => regular        -> found
+            case None            => Cross.Disabled -> latestStableVersion("sbt-plugin", CrossVersion.disabled)
           }
       }
 
       version
         .map(v => Dependency(organization, name, v, configuration, crossVersion = resolvedCrossVersion))
-        .getOrElse(Utils.fail(s"Could not resolve $organization:$name"))
+        .getOrElse {
+          Utils.fail {
+            s"Could not resolve $organization:$name " +
+              s"(no stable versions found for ${queried.distinct.mkString(", ")})"
+          }
+        }
     }
 
     /** Parses a dependency line, resolving the latest stable version when no version is specified.

@@ -21,7 +21,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
   test("foldings hides the object syntax around the dependency string") {
     val text =
       """example = [
-        |  { dependency = "com.typesafe:config:=1.4.5", note = "Pinned to the sbt version" }
+        |  { dependency = "com.typesafe:config:=1.4.9", note = "Pinned to the sbt version" }
         |]
         |""".stripMargin
 
@@ -38,7 +38,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
   test("foldings leaves the quoted dependency string uncovered") {
     val text =
       """example = [
-        |  { dependency = "com.typesafe:config:=1.4.5", note = "Pinned" }
+        |  { dependency = "com.typesafe:config:=1.4.9", note = "Pinned" }
         |]
         |""".stripMargin
 
@@ -46,7 +46,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
 
     val visible = text.substring(result.head.region.end, result.last.region.start)
 
-    val expected = "\"com.typesafe:config:=1.4.5\""
+    val expected = "\"com.typesafe:config:=1.4.9\""
 
     assertEquals(visible, expected)
   }
@@ -54,7 +54,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
   test("foldings tags both regions with the same entry span") {
     val text =
       """example = [
-        |  { dependency = "com.typesafe:config:=1.4.5", note = "Pinned" }
+        |  { dependency = "com.typesafe:config:=1.4.9", note = "Pinned" }
         |]
         |""".stripMargin
 
@@ -62,7 +62,7 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
 
     assertEquals(
       result.map(_.entry).distinct.map(span => text.substring(span.start, span.end)),
-      List("{ dependency = \"com.typesafe:config:=1.4.5\", note = \"Pinned\" }")
+      List("{ dependency = \"com.typesafe:config:=1.4.9\", note = \"Pinned\" }")
     )
   }
 
@@ -80,13 +80,44 @@ class SbtDependenciesFoldingBuilderSuite extends munit.FunSuite {
     assertEquals(result, expected)
   }
 
+  test("foldings describes an overrides annotation") {
+    val text =
+      """example = [
+        |  { dependency = "com.fasterxml.jackson:jackson-bom:2.17.0:bom", overrides = true }
+        |]
+        |""".stripMargin
+
+    val result = SbtDependenciesFoldingBuilder.foldings(text).map(folded(text, _))
+
+    val expected = List("{ dependency = " -> "", ", overrides = true }" -> " // overrides")
+
+    assertEquals(result, expected)
+  }
+
+  test("foldings leaves entries with several annotations expanded") {
+    val text =
+      """example = [
+        |  { dependency = "org.apache.kafka:kafka-clients:3.9.2", note = "Matches the broker", overrides = true }
+        |  { dependency = "org.scala-lang:scala-reflect:2.13.16", note = "Only on 2.13", scala-filter = "2.13" }
+        |  { dependency = "org.scalameta::munit:1.3.5", note = "Core types only", intransitive = true }
+        |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", note = "Built on protobuf 3", exclude = ["com.google.protobuf:protobuf-java"] }
+        |]
+        |""".stripMargin
+
+    val result = SbtDependenciesFoldingBuilder.foldings(text)
+
+    val expected = Nil
+
+    assertEquals(result, expected)
+  }
+
   test("foldings skips multi-line objects, plain entries and objects without annotations") {
     val text =
       """example = [
         |  "org.typelevel::cats-core:2.10.0"
-        |  { dependency = "org.scalameta::munit:1.2.4", intransitive = true }
+        |  { dependency = "org.scalameta::munit:1.3.5", intransitive = true }
         |  {
-        |    dependency = "com.typesafe:config:=1.4.5"
+        |    dependency = "com.typesafe:config:=1.4.9"
         |    note = "Pinned"
         |  }
         |]

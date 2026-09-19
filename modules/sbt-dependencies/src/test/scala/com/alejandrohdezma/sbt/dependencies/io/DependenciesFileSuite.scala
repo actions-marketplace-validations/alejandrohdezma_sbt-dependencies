@@ -29,6 +29,7 @@ import com.alejandrohdezma.sbt.dependencies.model.Dependency.Version
 import com.alejandrohdezma.sbt.dependencies.model.Dependency.Version.Numeric
 import com.alejandrohdezma.sbt.dependencies.model.DependencyOps._
 import com.alejandrohdezma.sbt.dependencies.model.Eq._
+import com.alejandrohdezma.sbt.dependencies.model.Exclusion
 import com.alejandrohdezma.sbt.dependencies.model.Group
 
 class DependenciesFileSuite extends munit.FunSuite {
@@ -1589,6 +1590,46 @@ class DependenciesFileSuite extends munit.FunSuite {
     assertNoDiff(content, expected)
   }
 
+  // --- overrides preservation tests ---
+
+  withDependenciesFile {
+    """|my-project = [
+       |  { dependency = "com.fasterxml.jackson:jackson-bom:2.17.0:bom", overrides = true }
+       |  { dependency = "org.http4s::http4s-core:0.23.3", overrides = true }
+       |]
+       |""".stripMargin
+  }.test("write preserves overrides flag through version update") { file =>
+    val newDeps = List(
+      Dependency(
+        "com.fasterxml.jackson",
+        "jackson-bom",
+        Version.Numeric(List(2, 17, 1), None, Version.Numeric.Marker.NoMarker),
+        "bom",
+        overrides = true
+      ),
+      Dependency(
+        "org.http4s",
+        "http4s-core",
+        Version.Numeric(List(0, 23, 4), None, Version.Numeric.Marker.NoMarker),
+        crossVersion = Dependency.Cross.Binary,
+        overrides = true
+      )
+    )
+
+    DependenciesFile(file).write(Group("my-project"), newDeps)
+
+    val content = IO.read(file)
+
+    val expected =
+      """|my-project = [
+         |  { dependency = "com.fasterxml.jackson:jackson-bom:2.17.1:bom", overrides = true }
+         |  { dependency = "org.http4s::http4s-core:0.23.4", overrides = true }
+         |]
+         |""".stripMargin
+
+    assertNoDiff(content, expected)
+  }
+
   // --- intransitive preservation tests ---
 
   withDependenciesFile {
@@ -1657,6 +1698,67 @@ class DependenciesFileSuite extends munit.FunSuite {
          |""".stripMargin
 
     assertNoDiff(content, expected)
+  }
+
+  // --- exclude preservation tests ---
+
+  withDependenciesFile {
+    """|my-project = [
+       |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }
+       |]
+       |""".stripMargin
+  }.test("read carries the exclude annotation onto the dependency") { file =>
+    val result = DependenciesFile(file).read(Group("my-project"), variableResolvers)
+
+    assertEquals(
+      result.map(_.exclusions),
+      List(List(Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false)))
+    )
+  }
+
+  withDependenciesFile {
+    """|my-project = [
+       |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", note = "protobuf 3", exclude = ["com.google.protobuf"] }
+       |]
+       |""".stripMargin
+  }.test("write preserves note and exclude through version update") { file =>
+    val newDeps = List(
+      Dependency(
+        "org.tribuo",
+        "tribuo-onnx",
+        Version.Numeric(List(4, 3, 3), None, Version.Numeric.Marker.NoMarker),
+        note = Some("protobuf 3"),
+        exclusions = List(Exclusion("com.google.protobuf", None, isCross = false))
+      )
+    )
+
+    DependenciesFile(file).write(Group("my-project"), newDeps)
+
+    val content = IO.read(file)
+
+    val expected =
+      """|my-project = [
+         |  { dependency = "org.tribuo:tribuo-onnx:4.3.3", note = "protobuf 3", exclude = ["com.google.protobuf"] }
+         |]
+         |""".stripMargin
+
+    assertNoDiff(content, expected)
+  }
+
+  withDependenciesFile {
+    """|my-project = [
+       |  { dependency = "org.tribuo:tribuo-onnx:4.3.2", exclude = ["com.google.protobuf:protobuf-java"] }
+       |]
+       |""".stripMargin
+  }.test("applyExistingAnnotations merges the file's exclude onto a build-derived dependency") { file =>
+    val deps = List(Dependency("org.tribuo", "tribuo-onnx", Version.Numeric.unapply("4.3.2").get))
+
+    val result = DependenciesFile(file).applyExistingAnnotations(Group("my-project"), deps)
+
+    assertEquals(
+      result.map(_.exclusions),
+      List(List(Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false)))
+    )
   }
 
   // --- cross-version annotation tests ---

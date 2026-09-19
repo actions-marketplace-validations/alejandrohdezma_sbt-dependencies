@@ -172,6 +172,25 @@ describe("walkDocument", () => {
       expect(objs[0].intransitive).toBe(true);
     });
 
+    it("detects overrides field", () => {
+      const objs = eventsOfType(
+        `group = [\n  { dependency = "org:bom:1.0:bom", overrides = true }\n  { dependency = "org:art:1.0", note = "reason" }\n]`,
+        "single-line-object"
+      );
+      expect(objs).toHaveLength(2);
+      expect(objs[0].overrides).toBe(true);
+      expect(objs[1].overrides).toBe(false);
+    });
+
+    it("aggregates overrides field in multi-line end event", () => {
+      const ends = eventsOfType(
+        `group = [\n  {\n    dependency = "org:bom:1.0:bom"\n    overrides = true\n  }\n]`,
+        "multi-line-object-end"
+      );
+      expect(ends).toHaveLength(1);
+      expect(ends[0].hasOverrides).toBe(true);
+    });
+
     it("detects scala-filter field", () => {
       const objs = eventsOfType(
         `group = [\n  { dependency = "org:art:1.0", scala-filter = "2.13" }\n]`,
@@ -188,6 +207,25 @@ describe("walkDocument", () => {
       );
       expect(objs).toHaveLength(1);
       expect(objs[0].crossVersion).toBe("full");
+    });
+
+    it("detects exclude field", () => {
+      const objs = eventsOfType(
+        `group = [\n  { dependency = "org:art:1.0", exclude = ["com.google.protobuf:protobuf-java", "org.slf4j"] }\n]`,
+        "single-line-object"
+      );
+      expect(objs).toHaveLength(1);
+      expect(objs[0].exclude).toEqual(["com.google.protobuf:protobuf-java", "org.slf4j"]);
+    });
+
+    it("aggregates exclude field in multi-line end event", () => {
+      const ends = eventsOfType(
+        `group = [\n  {\n    dependency = "org:art:1.0"\n    exclude = ["com.google.protobuf:protobuf-java"]\n  }\n]`,
+        "multi-line-object-end"
+      );
+      expect(ends).toHaveLength(1);
+      expect(ends[0].hasExclude).toBe(true);
+      expect(ends[0].excludeValue).toEqual(["com.google.protobuf:protobuf-java"]);
     });
 
     it("calculates dependencyStartCol correctly", () => {

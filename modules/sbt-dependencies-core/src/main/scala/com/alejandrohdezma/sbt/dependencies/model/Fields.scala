@@ -36,8 +36,16 @@ object Fields {
   /** The cross-version annotation of an object entry. */
   val CrossVersion = "cross-version"
 
+  /** The overrides flag of an object entry: force the entry's version (or every pin of a `:bom` entry) across the whole
+    * dependency graph through sbt's `dependencyOverrides`.
+    */
+  val Overrides = "overrides"
+
+  /** The list of coordinates kept out of an object entry's transitive graph. */
+  val Exclude = "exclude"
+
   /** The keys an object entry can declare. */
-  val EntryFields: List[String] = List(Dependency, Note, Intransitive, ScalaFilter, CrossVersion)
+  val EntryFields: List[String] = List(Dependency, Note, Intransitive, Overrides, ScalaFilter, CrossVersion, Exclude)
 
   /** The single-Scala-version setting of an advanced group. */
   val ScalaVersion = "scala-version"

@@ -1,49 +1,71 @@
 lazy val myproject = project
 
-lazy val optout = project.settings(dependencyOverridesFromBom := Nil)
+lazy val optin = project
 
-@transient lazy val assertOverridden = taskKey[Unit]("Assert transitive dependencies are forced to BOM versions")
+lazy val filtered = project.settings(bomOverridesFilter := { case m if m.name == "jackson-databind" => false })
 
-assertOverridden := {
-  val databind = (myproject / update).value.allModules
-    .find(m => m.organization == "com.fasterxml.jackson.core" && m.name == "jackson-databind")
-    .getOrElse(sys.error("jackson-databind not found in myproject's update report"))
+lazy val pinned = project
 
-  // jackson-module-scala 2.17.2 pulls jackson-databind 2.17.2, but the BOM pin forces the downgrade
-  assert(
-    databind.revision == "2.17.0",
-    s"jackson-databind should be forced to 2.17.0 by jackson-bom, got: ${databind.revision}"
-  )
-}
+def resolved(report: UpdateReport, name: String): String =
+  report.allModules
+    .find(m => m.organization.startsWith("com.fasterxml.jackson") && m.name == name)
+    .getOrElse(sys.error(s"$name not found in the update report"))
+    .revision
 
-@transient lazy val assertNotOverridden = taskKey[Unit]("Assert opting out leaves transitive resolution untouched")
+@transient lazy val assertNotOverridden = taskKey[Unit]("Assert a plain BOM line adds nothing to dependencyOverrides")
 
 assertNotOverridden := {
-  val databind = (optout / update).value.allModules
-    .find(m => m.organization == "com.fasterxml.jackson.core" && m.name == "jackson-databind")
-    .getOrElse(sys.error("jackson-databind not found in optout's update report"))
+  val report = (myproject / update).value
+
+  // jackson-module-scala 2.17.2 pulls jackson-databind 2.17.2; the BOM's 2.17.0 pin only applies to `*` lines
+  assert(resolved(report, "jackson-databind") == "2.17.2", "jackson-databind should not be forced without overrides")
+
+  val overrides = (myproject / dependencyOverridesFromFile).value
+
+  assert(overrides.isEmpty, s"myproject should declare no overrides, got: $overrides")
+}
+
+@transient lazy val assertOverridden = taskKey[Unit]("Assert a BOM line with overrides = true forces its pins")
+
+assertOverridden := {
+  val report = (optin / update).value
+
+  assert(resolved(report, "jackson-databind") == "2.17.0", "jackson-databind should be forced to 2.17.0 by the BOM")
+
+  // the project declares jackson-module-scala itself without the flag, so the BOM pin does not override it
+  assert(resolved(report, "jackson-module-scala_2.13") == "2.17.2", "an explicit line should shadow the BOM pin")
+
+  val overrides = (optin / dependencyOverridesFromFile).value
+
+  assert(overrides.exists(_.name == "jackson-databind"), s"overrides should contain jackson-databind, got: $overrides")
 
   assert(
-    databind.revision == "2.17.2",
-    s"jackson-databind should resolve to 2.17.2 without BOM overrides, got: ${databind.revision}"
-  )
-
-  val jacksonOverrides = (optout / dependencyOverrides).value.filter(_.organization.startsWith("com.fasterxml.jackson"))
-
-  assert(
-    jacksonOverrides.isEmpty,
-    s"optout should have no jackson pins in dependencyOverrides, got: $jacksonOverrides"
+    !overrides.exists(_.name == "jackson-module-scala_2.13"),
+    s"overrides should not contain the explicitly declared jackson-module-scala, got: $overrides"
   )
 }
 
-@transient lazy val assertDeduped = taskKey[Unit]("Assert BOM pins are deduplicated by module keeping the first entry")
+@transient lazy val assertFiltered = taskKey[Unit]("Assert bomOverridesFilter drops pins from a flagged BOM")
 
-assertDeduped := {
-  val pins = (myproject / dependencyOverridesFromBom).value
+assertFiltered := {
+  val report = (filtered / update).value
 
-  assert(pins.nonEmpty, "myproject should have BOM pins in dependencyOverridesFromBom")
+  assert(resolved(report, "jackson-databind") == "2.17.2", "the filtered pin should not force jackson-databind")
 
-  val duplicated = pins.groupBy(m => (m.organization, m.name)).filter(_._2.size > 1)
+  assert(resolved(report, "jackson-core") == "2.17.0", "pins the filter keeps should still be forced")
+}
 
-  assert(duplicated.isEmpty, s"dependencyOverridesFromBom should have one entry per module, got duplicates: $duplicated")
+@transient lazy val assertPinned = taskKey[Unit]("Assert a dependency line with overrides = true forces its revision")
+
+assertPinned := {
+  val report = (pinned / update).value
+
+  assert(resolved(report, "jackson-databind") == "2.17.0", "jackson-databind should be forced to the declared 2.17.0")
+
+  val overrides = (pinned / dependencyOverridesFromFile).value
+
+  assert(
+    overrides == Seq("com.fasterxml.jackson.core" % "jackson-databind" % "2.17.0"),
+    s"overrides should hold the flagged line only, got: $overrides"
+  )
 }

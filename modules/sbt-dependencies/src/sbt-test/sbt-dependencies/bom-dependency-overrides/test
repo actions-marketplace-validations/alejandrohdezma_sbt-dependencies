@@ -1,5 +1,6 @@
-# BOM pins flow into dependencyOverrides by default, forcing transitive dependencies to the BOM's
-# versions, and `dependencyOverridesFromBom := Nil` opts a project out.
-> assertOverridden
+# `overrides = true` on a `:bom` line forces every pin of the BOM (minus `bomOverridesFilter` and the modules the
+# project declares itself); on a dependency line it forces that revision. Plain lines add nothing.
 > assertNotOverridden
-> assertDeduped
+> assertOverridden
+> assertFiltered
+> assertPinned

@@ -19,6 +19,7 @@ package com.alejandrohdezma.sbt.dependencies.model
 import scala.Console._
 
 import sbt.librarymanagement.CrossVersion
+import sbt.librarymanagement.InclExclRule
 import sbt.librarymanagement.ModuleID
 import sbt.util.Level
 
@@ -326,6 +327,47 @@ class DependencyOpsSuite extends munit.FunSuite {
       marked.adoptBomManagedVersion(pins, "2.13", safe = false),
       BomAdoption.Adopted(marked.withVersion(Version.Bom(None)), marked, Version.Numeric.unapply("1.2.0").get)
     )
+  }
+
+  test("resolveBom carries the pin's exclusions onto the dependency") {
+    val pin = ModuleID("org.lib", "lib_2.13", "1.0.0")
+      .exclude("com.google.protobuf", "protobuf-java")
+
+    val result = bomDep("org.lib", "lib").resolveBom(Seq(pin), "2.13")
+
+    assertEquals(result.exclusions, List(Exclusion("com.google.protobuf", Some("protobuf-java"), isCross = false)))
+  }
+
+  test("resolveBom merges the pin's exclusions with the ones the line declares") {
+    val own = Exclusion("org.slf4j", None, isCross = false)
+
+    val pin = ModuleID("org.lib", "lib_2.13", "1.0.0")
+      .excludeAll(
+        InclExclRule()
+          .withOrganization("org.typelevel")
+          .withName("cats-core")
+          .withCrossVersion(CrossVersion.binary)
+      )
+
+    val dependency = bomDep("org.lib", "lib").copy(exclusions = List(own))
+
+    val result = dependency.resolveBom(Seq(pin), "2.13")
+
+    assertEquals(result.exclusions, List(own, Exclusion("org.typelevel", Some("cats-core"), isCross = true)))
+  }
+
+  test("resolveBom marks the dependency intransitive when the pin is") {
+    val pin = ModuleID("org.lib", "lib_2.13", "1.0.0").withIsTransitive(false)
+
+    assert(bomDep("org.lib", "lib").resolveBom(Seq(pin), "2.13").intransitive)
+  }
+
+  test("resolveBom leaves exclusions untouched when no pin matches") {
+    val own = Exclusion("org.slf4j", None, isCross = false)
+
+    val dependency = bomDep("org.lib", "lib").copy(exclusions = List(own))
+
+    assertEquals(dependency.resolveBom(Seq(ModuleID("org.other", "other_2.13", "1.0.0")), "2.13"), dependency)
   }
 
 }

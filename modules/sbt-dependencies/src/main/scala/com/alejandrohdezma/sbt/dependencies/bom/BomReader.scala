@@ -57,14 +57,17 @@ object BomReader {
       (Coords(bom, scalaBinaryVersion), scalaBinaryVersion),
       { case (coords, scalaVersion) =>
         extract(List((coords, 0)), Map("scala.compat.version" -> scalaVersion))
-          .groupBy(_._1.module)
+          .groupBy(_._1.coords.module)
           .toList
           .map { case (_, versions) =>
             val best    = versions.minBy(_._2)._1
-            val evicted = versions.map(_._1.version).distinct.filterNot(_ === best.version)
+            val evicted = versions.map(_._1.coords.version).distinct.filterNot(_ === best.coords.version)
 
             if (evicted.nonEmpty)
-              log.info(s"BOM $coords pins ${best.module} to ${best.version}, ignoring ${evicted.mkString(", ")}")
+              log.info(
+                s"BOM $coords pins ${best.coords.module} to ${best.coords.version}, " +
+                  s"ignoring ${evicted.mkString(", ")}"
+              )
 
             best.toModuleID
           }
@@ -80,20 +83,20 @@ object BomReader {
       pending: List[(Coords, Priority)],
       properties: Map[String, String],
       visited: Set[Coords] = Set.empty,
-      acc: Vector[(Coords, Priority)] = Vector.empty
-  )(implicit fetcher: ModuleFetcher, log: Logger): Vector[(Coords, Priority)] = pending match {
+      acc: Vector[(Entry, Priority)] = Vector.empty
+  )(implicit fetcher: ModuleFetcher, log: Logger): Vector[(Entry, Priority)] = pending match {
     case Nil                                             => acc
     case (coords, _) :: rest if visited.contains(coords) => extract(rest, properties, visited, acc)
     case (coords, priority) :: rest                      =>
       val resolved = Pom.fetch(coords).resolve(priority, properties)
 
       val (artifacts, imports) =
-        resolved.foldLeft((Vector.empty[(Coords, Priority)], List.empty[(Coords, Priority)])) {
+        resolved.foldLeft((Vector.empty[(Entry, Priority)], List.empty[(Coords, Priority)])) {
           case ((artifacts, imports), pom) =>
             val (importEntries, plain) = pom.entries.partition(_.isImport)
 
             (
-              artifacts ++ plain.map(e => (e.coords, pom.priority)),
+              artifacts ++ plain.map(e => (e, pom.priority)),
               imports ++ importEntries.map(e => (e.coords, pom.priority + 1))
             )
         }

@@ -1,4 +1,4 @@
-import { walkDocument, objectDepFieldPattern, objectIntransitiveFieldPattern, objectScalaFilterFieldPattern, objectCrossVersionFieldPattern } from "./parser";
+import { walkDocument, objectDepFieldPattern, objectIntransitiveFieldPattern, objectOverridesFieldPattern, objectScalaFilterFieldPattern, objectCrossVersionFieldPattern, objectExcludeFieldPattern, parseExcludeList } from "./parser";
 import { groupSortKey } from "./groups";
 
 /** Regex mirroring Scala-side `Dependency.dependencyRegex`. */
@@ -175,13 +175,16 @@ function extractDependencyEntryFromObject(
   const noteMatch = /note\s*=\s*"([^"]*)"/.exec(objectText);
   const note = noteMatch?.[1];
   const isIntransitive = objectIntransitiveFieldPattern.test(objectText);
+  const isOverrides = objectOverridesFieldPattern.test(objectText);
   const scalaFilterMatch = objectScalaFilterFieldPattern.exec(objectText);
   const scalaFilter = scalaFilterMatch?.[1];
   const crossVersionMatch = objectCrossVersionFieldPattern.exec(objectText);
   const crossVersion = crossVersionMatch?.[1];
+  const excludeMatch = objectExcludeFieldPattern.exec(objectText);
+  const exclude = excludeMatch ? parseExcludeList(excludeMatch[1]) : undefined;
 
-  if (note || isIntransitive || scalaFilter || crossVersion) {
-    return formatObjectFields(depString, note, isIntransitive, scalaFilter, crossVersion, indent);
+  if (note || isIntransitive || isOverrides || scalaFilter || crossVersion || exclude?.length) {
+    return formatObjectFields(depString, note, isIntransitive, isOverrides, scalaFilter, crossVersion, exclude, indent);
   } else {
     return { depLine: `${indent}${objectText.trim()}`, sortKey: buildSortKey(depString) };
   }
@@ -204,20 +207,25 @@ function buildObjectEntry(
 
   let note: string | undefined;
   let isIntransitive = false;
+  let isOverrides = false;
   let scalaFilter: string | undefined;
   let crossVersion: string | undefined;
+  let exclude: string[] | undefined;
   for (const l of objectLines) {
     const noteMatch = /note\s*=\s*"([^"]*)"/.exec(l);
     if (noteMatch) note = noteMatch[1];
     if (objectIntransitiveFieldPattern.test(l)) isIntransitive = true;
+    if (objectOverridesFieldPattern.test(l)) isOverrides = true;
     const scalaFilterMatch = objectScalaFilterFieldPattern.exec(l);
     if (scalaFilterMatch) scalaFilter = scalaFilterMatch[1];
     const crossVersionMatch = objectCrossVersionFieldPattern.exec(l);
     if (crossVersionMatch) crossVersion = crossVersionMatch[1];
+    const excludeMatch = objectExcludeFieldPattern.exec(l);
+    if (excludeMatch) exclude = parseExcludeList(excludeMatch[1]);
   }
 
-  if (note || isIntransitive || scalaFilter || crossVersion) {
-    return formatObjectFields(depString, note, isIntransitive, scalaFilter, crossVersion, indent);
+  if (note || isIntransitive || isOverrides || scalaFilter || crossVersion || exclude?.length) {
+    return formatObjectFields(depString, note, isIntransitive, isOverrides, scalaFilter, crossVersion, exclude, indent);
   }
 
   return {
@@ -227,22 +235,28 @@ function buildObjectEntry(
 }
 
 /**
- * Formats an object entry with dependency, optional note, and optional intransitive fields.
+ * Formats an object entry with dependency and its optional annotation fields, in the order
+ * `AnnotatedDependency.format` emits them: note, intransitive, overrides, scala-filter, cross-version, exclude.
  * Uses single-line format if it fits within the threshold, multi-line otherwise.
  */
 function formatObjectFields(
   depString: string,
   note: string | undefined,
   isIntransitive: boolean,
+  isOverrides: boolean,
   scalaFilter: string | undefined,
   crossVersion: string | undefined,
+  exclude: string[] | undefined,
   indent: string
 ): DependencyEntry {
   const noteField = note ? `note = "${note}"` : undefined;
   const intransitiveField = isIntransitive ? "intransitive = true" : undefined;
+  const overridesField = isOverrides ? "overrides = true" : undefined;
   const scalaFilterField = scalaFilter ? `scala-filter = "${scalaFilter}"` : undefined;
   const crossVersionField = crossVersion ? `cross-version = "${crossVersion}"` : undefined;
-  const fields = [noteField, intransitiveField, scalaFilterField, crossVersionField].filter(Boolean).join(", ");
+  const excludeList = exclude?.length ? `[${exclude.map(e => `"${e}"`).join(", ")}]` : undefined;
+  const excludeField = excludeList ? `exclude = ${excludeList}` : undefined;
+  const fields = [noteField, intransitiveField, overridesField, scalaFilterField, crossVersionField, excludeField].filter(Boolean).join(", ");
 
   // The threshold applies to the unindented object text, mirroring `AnnotatedDependency.format`.
   const singleLine = `{ dependency = "${depString}", ${fields} }`;
@@ -251,10 +265,12 @@ function formatObjectFields(
   } else {
     const noteSection = note ? `\n${indent}  note = "${note}"` : "";
     const intransitiveSection = isIntransitive ? `\n${indent}  intransitive = true` : "";
+    const overridesSection = isOverrides ? `\n${indent}  overrides = true` : "";
     const scalaFilterSection = scalaFilter ? `\n${indent}  scala-filter = "${scalaFilter}"` : "";
     const crossVersionSection = crossVersion ? `\n${indent}  cross-version = "${crossVersion}"` : "";
+    const excludeSection = excludeList ? `\n${indent}  exclude = ${excludeList}` : "";
     return {
-      depLine: `${indent}{\n${indent}  dependency = "${depString}"${noteSection}${intransitiveSection}${scalaFilterSection}${crossVersionSection}\n${indent}}`,
+      depLine: `${indent}{\n${indent}  dependency = "${depString}"${noteSection}${intransitiveSection}${overridesSection}${scalaFilterSection}${crossVersionSection}${excludeSection}\n${indent}}`,
       sortKey: buildSortKey(depString),
     };
   }

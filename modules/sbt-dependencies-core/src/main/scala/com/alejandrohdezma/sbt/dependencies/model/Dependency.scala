@@ -21,7 +21,8 @@ import scala.util.Try
 import com.alejandrohdezma.sbt.dependencies.model.Eq._
 
 /** A dependency entry: an artifact coordinate (`organization`, `name`, `version`) plus how it should be wired into the
-  * build (`crossVersion`, `configuration`) and any optional annotations (`note`, `intransitive`, `scalaFilter`).
+  * build (`crossVersion`, `configuration`) and any optional annotations (`note`, `intransitive`, `scalaFilter`,
+  * `overrides`).
   *
   * `version` is a sealed `Version` — either `Numeric` (a real version like `1.2.3`) or `Variable` (a `{{name}}`
   * placeholder, possibly carrying a resolved `Numeric` once the build's `dependencyVersionVariables` resolver was
@@ -39,7 +40,9 @@ final case class Dependency(
     note: Option[String] = None,
     intransitive: Boolean = false,
     scalaFilter: Option[String] = None,
-    crossVersion: Dependency.Cross = Dependency.Cross.Disabled
+    crossVersion: Dependency.Cross = Dependency.Cross.Disabled,
+    overrides: Boolean = false,
+    exclusions: List[Exclusion] = Nil
 ) {
 
   /** Whether this dep is cross-compiled. Derived from `crossVersion`: anything other than `Disabled` is cross. */
@@ -59,12 +62,12 @@ final case class Dependency(
       note: Option[String],
       intransitive: Boolean,
       scalaFilter: Option[String],
-      crossVersion: Dependency.Cross
+      crossVersion: Dependency.Cross,
+      overrides: Boolean,
+      exclusions: List[Exclusion]
   ): Dependency = copy(
-    note = note,
-    intransitive = intransitive,
-    scalaFilter = scalaFilter,
-    crossVersion = crossVersion
+    note = note, intransitive = intransitive, scalaFilter = scalaFilter, crossVersion = crossVersion,
+    overrides = overrides, exclusions = exclusions
   )
 
   /** Checks if the dependency is the same artifact as another dependency. Cross vs Java is part of the artifact
@@ -334,8 +337,8 @@ object Dependency {
       /** Returns a copy of this version with the given marker, preserving parts and suffix. */
       def withMarker(marker: Numeric.Marker): Numeric = copy(marker = marker)
 
-      /** Checks if the version is a stable version (3 parts, no suffix). */
-      def isStableVersion: Boolean = suffix.isEmpty && parts.length === 3
+      /** Checks if the version is a stable version (no pre-release/qualifier suffix). */
+      def isStableVersion: Boolean = suffix.isEmpty && parts.nonEmpty
 
       override def isSameVersion(other: Version): Boolean = other match {
         case n: Numeric => parts === n.parts && suffix === n.suffix
@@ -391,7 +394,9 @@ object Dependency {
 
       implicit val NumericEq: Eq[Numeric] = (a, b) => VersionEq.eqv(a, b)
 
-      /** Ordering for versions: compares numeric parts left-to-right, then suffix numbers. */
+      /** Ordering for versions: compares numeric parts left-to-right, then suffix numbers, then part count (so `1.0.0`
+        * wins over `1.0` when an artifact publishes both shapes).
+        */
       implicit val NumericVersionOrdering: Ordering[Numeric] = (v1: Numeric, v2: Numeric) => {
         val maxLen  = math.max(v1.parts.length, v2.parts.length)
         val padded1 = v1.parts.padTo(maxLen, 0)
@@ -402,8 +407,11 @@ object Dependency {
           case (acc, (_, _)) => acc
         }
 
+        val suffixComparison = v1.suffixNumber.getOrElse(BigInt(0)).compareTo(v2.suffixNumber.getOrElse(BigInt(0)))
+
         if (partsComparison !== 0) partsComparison
-        else v1.suffixNumber.getOrElse(BigInt(0)).compareTo(v2.suffixNumber.getOrElse(BigInt(0)))
+        else if (suffixComparison !== 0) suffixComparison
+        else v1.parts.length.compareTo(v2.parts.length)
       }
 
       private val regex = """^(\d+(?:\.\d+)*)(.*)$""".r

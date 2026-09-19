@@ -6,9 +6,16 @@ export const dependenciesArrayStartPattern = /^\s*dependencies\s*=\s*\[/;
 export const objectDepFieldPattern = /dependency\s*=\s*"([^"]*)"/;
 export const objectNoteFieldPattern = /note\s*=\s*"([^"]*)"/;
 export const objectIntransitiveFieldPattern = /intransitive\s*=\s*true/;
+export const objectOverridesFieldPattern = /overrides\s*=\s*true/;
 export const objectScalaFilterFieldPattern = /scala-filter\s*=\s*"([^"]*)"/;
 export const objectCrossVersionFieldPattern = /cross-version\s*=\s*"([^"]*)"/;
+export const objectExcludeFieldPattern = /exclude\s*=\s*\[([^\]]*)\]/;
 export const singleLineObjectPattern = /\{(?:[^}"{]*(?:"[^"]*")?)*\}/g;
+
+/** Extracts the quoted entries of an `exclude = [...]` list body. */
+export function parseExcludeList(listBody: string): string[] {
+  return Array.from(listBody.matchAll(/"([^"]*)"/g), m => m[1]);
+}
 
 // ── Event types ─────────────────────────────────────────────────────
 
@@ -64,8 +71,10 @@ export interface SingleLineObjectEvent {
   dependencyStartCol: number | undefined;
   note: string | undefined;
   intransitive: boolean;
+  overrides: boolean;
   scalaFilter: string | undefined;
   crossVersion: string | undefined;
+  exclude: string[] | undefined;
   rawLine: string;
   arrayKind: "simple" | "dependencies";
 }
@@ -83,7 +92,7 @@ export interface MultiLineObjectFieldEvent {
   lineIndex: number;
   rawLine: string;
   effectiveLine: string;
-  field: "dependency" | "note" | "intransitive" | "scala-filter" | "cross-version" | null;
+  field: "dependency" | "note" | "intransitive" | "overrides" | "scala-filter" | "cross-version" | "exclude" | null;
   fieldValue: string | undefined;
   fieldValueStartCol: number | undefined;
 }
@@ -101,10 +110,13 @@ export interface MultiLineObjectEndEvent {
   hasNote: boolean;
   noteValue: string | undefined;
   hasIntransitive: boolean;
+  hasOverrides: boolean;
   hasScalaFilter: boolean;
   scalaFilterValue: string | undefined;
   hasCrossVersion: boolean;
   crossVersionValue: string | undefined;
+  hasExclude: boolean;
+  excludeValue: string[] | undefined;
   objectStartLine: number;
   arrayKind: "simple" | "dependencies";
 }
@@ -168,7 +180,7 @@ function stripQuotedStrings(line: string): string {
 function detectField(
   effectiveLine: string,
   rawLine: string
-): { field: "dependency" | "note" | "intransitive" | "scala-filter" | "cross-version" | null; fieldValue: string | undefined; fieldValueStartCol: number | undefined } {
+): { field: "dependency" | "note" | "intransitive" | "overrides" | "scala-filter" | "cross-version" | "exclude" | null; fieldValue: string | undefined; fieldValueStartCol: number | undefined } {
   const depMatch = objectDepFieldPattern.exec(rawLine);
   if (depMatch) {
     return {
@@ -184,6 +196,9 @@ function detectField(
   if (objectIntransitiveFieldPattern.test(effectiveLine)) {
     return { field: "intransitive", fieldValue: undefined, fieldValueStartCol: undefined };
   }
+  if (objectOverridesFieldPattern.test(effectiveLine)) {
+    return { field: "overrides", fieldValue: undefined, fieldValueStartCol: undefined };
+  }
   const sfMatch = objectScalaFilterFieldPattern.exec(effectiveLine);
   if (sfMatch) {
     return { field: "scala-filter", fieldValue: sfMatch[1], fieldValueStartCol: undefined };
@@ -192,6 +207,10 @@ function detectField(
   if (cvMatch) {
     const cvStartCol = cvMatch.index + cvMatch[0].indexOf('"') + 1;
     return { field: "cross-version", fieldValue: cvMatch[1], fieldValueStartCol: cvStartCol };
+  }
+  const excludeMatch = objectExcludeFieldPattern.exec(effectiveLine);
+  if (excludeMatch) {
+    return { field: "exclude", fieldValue: excludeMatch[1], fieldValueStartCol: undefined };
   }
   return { field: null, fieldValue: undefined, fieldValueStartCol: undefined };
 }
@@ -215,10 +234,13 @@ export function* walkDocument(lines: string[]): Generator<DocumentEvent> {
   let objectHasNote = false;
   let objectNoteValue: string | undefined;
   let objectHasIntransitive = false;
+  let objectHasOverrides = false;
   let objectHasScalaFilter = false;
   let objectScalaFilterValue: string | undefined;
   let objectHasCrossVersion = false;
   let objectCrossVersionValue: string | undefined;
+  let objectHasExclude = false;
+  let objectExcludeValue: string[] | undefined;
 
   function resetObjectTracking(lineIndex: number) {
     objectLines = [];
@@ -230,10 +252,13 @@ export function* walkDocument(lines: string[]): Generator<DocumentEvent> {
     objectHasNote = false;
     objectNoteValue = undefined;
     objectHasIntransitive = false;
+    objectHasOverrides = false;
     objectHasScalaFilter = false;
     objectScalaFilterValue = undefined;
     objectHasCrossVersion = false;
     objectCrossVersionValue = undefined;
+    objectHasExclude = false;
+    objectExcludeValue = undefined;
   }
 
   function trackObjectField(effectiveLine: string, rawLine: string, lineIndex: number) {
@@ -253,6 +278,9 @@ export function* walkDocument(lines: string[]): Generator<DocumentEvent> {
     if (objectIntransitiveFieldPattern.test(effectiveLine)) {
       objectHasIntransitive = true;
     }
+    if (objectOverridesFieldPattern.test(effectiveLine)) {
+      objectHasOverrides = true;
+    }
     const sfMatch = objectScalaFilterFieldPattern.exec(effectiveLine);
     if (sfMatch) {
       objectHasScalaFilter = true;
@@ -262,6 +290,11 @@ export function* walkDocument(lines: string[]): Generator<DocumentEvent> {
     if (cvMatch) {
       objectHasCrossVersion = true;
       objectCrossVersionValue = cvMatch[1];
+    }
+    const excludeMatch = objectExcludeFieldPattern.exec(effectiveLine);
+    if (excludeMatch) {
+      objectHasExclude = true;
+      objectExcludeValue = parseExcludeList(excludeMatch[1]);
     }
   }
 
@@ -309,10 +342,13 @@ export function* walkDocument(lines: string[]): Generator<DocumentEvent> {
           hasNote: objectHasNote,
           noteValue: objectNoteValue,
           hasIntransitive: objectHasIntransitive,
+          hasOverrides: objectHasOverrides,
           hasScalaFilter: objectHasScalaFilter,
           scalaFilterValue: objectScalaFilterValue,
           hasCrossVersion: objectHasCrossVersion,
           crossVersionValue: objectCrossVersionValue,
+          hasExclude: objectHasExclude,
+          excludeValue: objectExcludeValue,
           objectStartLine,
           arrayKind: arrayKind(),
         };
@@ -466,6 +502,7 @@ function* emitDependenciesOnLine(
     const noteMatch = objectNoteFieldPattern.exec(objectText);
     const sfMatch = objectScalaFilterFieldPattern.exec(objectText);
     const cvMatch = objectCrossVersionFieldPattern.exec(objectText);
+    const excludeMatch = objectExcludeFieldPattern.exec(objectText);
 
     let dependencyStartCol: number | undefined;
     if (depMatch) {
@@ -481,8 +518,10 @@ function* emitDependenciesOnLine(
       dependencyStartCol,
       note: noteMatch?.[1],
       intransitive: objectIntransitiveFieldPattern.test(objectText),
+      overrides: objectOverridesFieldPattern.test(objectText),
       scalaFilter: sfMatch?.[1],
       crossVersion: cvMatch?.[1],
+      exclude: excludeMatch ? parseExcludeList(excludeMatch[1]) : undefined,
       rawLine,
       arrayKind: ak,
     };

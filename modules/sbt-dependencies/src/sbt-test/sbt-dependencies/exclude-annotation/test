@@ -1,0 +1,9 @@
+# The `exclude` annotation keeps the listed coordinates out of the dependency's transitive graph, mapping
+# `org:name` to an exact artifact rule, `org::name` to a Scala-suffixed one and a bare `org` to every artifact of
+# that organization. The annotation survives `updateDependencies` and `formatDependenciesFile` untouched.
+> assertExcludedTransitiveIsGone
+> assertExclusionShapes
+> myproject/updateDependencies
+$ must-mirror project/dependencies.conf project/dependencies.conf.expected
+> formatDependenciesFile
+$ must-mirror project/dependencies.conf project/dependencies.conf.expected
